@@ -1,0 +1,62 @@
+name: diaryapp
+description: A new Flutter project.
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0" # This supports Dart 3 and above
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  sembast: ^3.8.5+1
+  sembast_web: ^2.0.1
+  path_provider: ^2.0.11
+  path: ^1.8.2
+  intl: ^0.20.2
+  flutter_emoji: ^2.0.0 # You have this, keep it if you use emojis
+  characters: ^1.2.0 # You have this, keep it if you use characters
+  http: '>=0.13.0 <2.0.0' # You have this, keep it if you use http requests
+  provider: ^6.0.5
+  shared_preferences: ^2.2.3
+  local_auth: ^2.2.0
+  flutter_colorpicker: ^1.1.0 # ADD THIS LINE
+  google_fonts: ^6.2.1 # ADD THIS LINE FOR CUTE FONT
+  audioplayers: ^6.0.0 # NEW: For playing sound effects
+  firebase_core: ^3.15.0
+  firebase_auth: ^5.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lint: ^1.0.0
+  test: ^1.20.1
+  flutter_lints: ^1.0.0
+
+
+flutter:
+
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  assets:
+    - assets/images/happy.gif
+    - assets/images/happy.png
+    - assets/images/angry.png
+    - assets/images/care.png
+    - assets/images/goffy.png
+    - assets/images/love.png
+    - assets/images/party.png
+    - assets/images/polite.png
+    - assets/images/sad.png
+    - assets/images/scared.png
+    - assets/images/sick.png
+    - assets/images/smart.png
+    - assets/images/stress.png
+    - assets/images/wink.png
+    - assets/sounds/chime.mp3
+    
