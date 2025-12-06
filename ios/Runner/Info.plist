@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
     <key>NSFaceIDUsageDescription</key>
+    <string>We need access to Face ID or Touch ID to quickly and securely unlock your diary.</string>
+    <key>NSFaceIDUsageDescription</key>
     <string>Allow access to authenticate to your diary.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
