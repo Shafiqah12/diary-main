@@ -10,7 +10,8 @@ import 'dart:math';
 import 'custom_app_bar.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/services.dart';
-
+import 'package:shake/shake.dart'; // NEW: For Motion Sensor
+import 'package:table_calendar/table_calendar.dart'; // NEW: For Calendar
 
 // Define a simple FloatingDecoration class for the background animation
 class FloatingDecoration {
@@ -72,6 +73,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _floatingDecorationsController;
   final List<FloatingDecoration> _decorations = [];
   final Random _random = Random();
+
+  // --- NEW: Dashboard & Nav State ---
+  int _currentIndex = 0; // 0: Diary, 1: Calendar, 2: Dashboard
+  late ShakeDetector _shakeDetector;
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
 
   final List<String> _backgroundDecorationImages = [
     'assets/images/love.png',
@@ -157,6 +165,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.initState();
     _refreshDiaries();
 
+    // MOTION SENSOR: Initialize Shake Detection
+    _shakeDetector = ShakeDetector.autoStart(
+      onPhoneShake: () {
+        _triggerHapticFeedback();
+        _showForm(null); // Automatically opens "Add Entry" sheet
+      },
+      shakeThresholdGravity: 1.5,
+    );
+
     _searchController.addListener(() {
       setState(() {
         _applySearchFilter();
@@ -214,6 +231,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _shakeDetector.stopListening();
     _floatingDecorationsController.dispose();
     _emotionScrollController.dispose();
     _feelingController.dispose();
@@ -226,6 +244,98 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
     _fabPulseController.dispose();
     super.dispose();
+  }
+
+  // --- STREAK LOGIC ---
+  int _calculateStreak() {
+    if (_diaries.isEmpty) return 0;
+    final dates = _diaries
+        .map((e) => DateTime.parse(e['createdAt']).toIso8601String().split('T')[0])
+        .toSet().toList()..sort((a, b) => b.compareTo(a));
+
+    int streak = 0;
+    DateTime checkDate = DateTime.now();
+    for (String dateStr in dates) {
+      if (dateStr == DateFormat('yyyy-MM-dd').format(checkDate)) {
+        streak++;
+        checkDate = checkDate.subtract(const Duration(days: 1));
+      } else if (DateTime.parse(dateStr).isBefore(DateTime(checkDate.year, checkDate.month, checkDate.day))) {
+        break;
+      }
+    }
+    return streak;
+  }
+
+  // --- VIEW BUILDERS ---
+
+  Widget _buildCalendarView() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          TableCalendar(
+            firstDay: DateTime.utc(2020, 1, 1),
+            lastDay: DateTime.utc(2030, 12, 31),
+            focusedDay: _focusedDay,
+            calendarFormat: _calendarFormat,
+            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+            onDaySelected: (selectedDay, focusedDay) {
+              setState(() { _selectedDay = selectedDay; _focusedDay = focusedDay; });
+            },
+            onFormatChanged: (format) => setState(() => _calendarFormat = format),
+            eventLoader: (day) {
+              return _diaries.where((e) => isSameDay(DateTime.parse(e['createdAt']), day)).toList();
+            },
+          ),
+          const Divider(),
+          if (_selectedDay != null) ...[
+             Text("Entries for ${DateFormat.yMMMd().format(_selectedDay!)}", 
+                  style: GoogleFonts.quicksand(fontWeight: FontWeight.bold)),
+             // Add mini list here if needed
+          ]
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDashboardView() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          // STREAK CARD
+          Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            color: Colors.orange.shade50,
+            child: ListTile(
+              leading: const Icon(Icons.local_fire_department, color: Colors.orange, size: 40),
+              title: Text('Current Streak', style: GoogleFonts.quicksand(fontWeight: FontWeight.bold)),
+              trailing: Text('${_calculateStreak()} Days', 
+                style: GoogleFonts.quicksand(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text("Diary Summary", style: GoogleFonts.quicksand(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Expanded(
+            child: ListView(
+              children: [
+                _buildStatTile("Total Entries", "${_diaries.length}", Icons.book),
+                _buildStatTile("Current Goal", "Write Daily", Icons.star),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatTile(String title, String value, IconData icon) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.teal),
+      title: Text(title, style: GoogleFonts.quicksand()),
+      trailing: Text(value, style: GoogleFonts.quicksand(fontWeight: FontWeight.bold)),
+    );
   }
 
   final TextEditingController _feelingController = TextEditingController();
@@ -430,6 +540,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       },
     );
   }
+  
 
   void _updateDateTimeController() {
     _dateTimeController.text = DateFormat('yyyy-MM-dd HH:mm').format(_selectedDateTime);
@@ -522,16 +633,109 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _triggerHapticFeedback();
     }
   }
-
-  @override
+  
+@override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
+    // --- STEP 1: DEFINE THE CONTENT FOR EACH TAB ---
+    Widget activeTabContent;
+
+    if (_currentIndex == 0) {
+      // TAB 0: YOUR ORIGINAL DIARY LIST INTERFACE
+      activeTabContent = _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _filteredDiaries.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset('assets/images/happy.png', height: 150, width: 150),
+                      const SizedBox(height: 24),
+                      Text(
+                        _isSearching ? 'No results found!' : 'Your journey begins here!',
+                        style: GoogleFonts.quicksand(
+                          fontSize: 22,
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 30.0),
+                        child: Text(
+                          _isSearching
+                              ? 'Try a different search term or add a new entry.'
+                              : 'Tap the cute "+" button below to add your first entry!',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.quicksand(fontSize: 16, color: Colors.grey[600]),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _filteredDiaries.length,
+                  itemBuilder: (context, index) {
+                    final diaryEntry = _filteredDiaries[index];
+                    final String? emotionImagePath = diaryEntry['emotionImage'];
+                    final Color cardBorderColor = _emotionColors[emotionImagePath] ?? Colors.transparent;
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      elevation: 6,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        side: BorderSide(color: cardBorderColor, width: 2),
+                      ),
+                      child: Stack(
+                        children: [
+                          // Your original stars/hearts decorations inside the card
+                          Positioned(
+                            top: -10, right: -10,
+                            child: Transform.rotate(angle: 0.5, child: Icon(Icons.star, size: 50, color: Colors.yellow.withOpacity(0.2))),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    if (emotionImagePath != null && emotionImagePath.isNotEmpty)
+                                      Image.asset(emotionImagePath, height: 45, width: 45),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        diaryEntry['feeling'],
+                                        style: GoogleFonts.quicksand(fontWeight: FontWeight.bold, fontSize: 22, color: themeProvider.appBarColor),
+                                      ),
+                                    ),
+                                    IconButton(icon: const Icon(Icons.edit, color: Colors.blueGrey), onPressed: () => _showForm(diaryEntry['id'])),
+                                    IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteDiary(diaryEntry['id'])),
+                                  ],
+                                ),
+                                Text(diaryEntry['description'], style: GoogleFonts.quicksand(color: Colors.black87, fontSize: 16)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+    } else if (_currentIndex == 1) {
+      // TAB 1: THE NEW CALENDAR VIEW
+      activeTabContent = _buildCalendarView(); 
+    } else {
+      // TAB 2: THE NEW DASHBOARD/STATS VIEW
+      activeTabContent = _buildDashboardView();
+    }
+
+    // --- STEP 2: THE MAIN SCAFFOLD STRUCTURE ---
     return Scaffold(
       appBar: CustomAppBar(
-        title: _isSearching
-            ? 'Search Diary'
-            : "Shafiqah's Diary",
+        title: _isSearching ? 'Search Diary' : "Shafiqah's Diary",
         backgroundColor: themeProvider.appBarColor,
         actions: [
           IconButton(
@@ -539,21 +743,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             onPressed: () {
               setState(() {
                 _isSearching = !_isSearching;
-                if (!_isSearching) {
-                  _searchController.clear();
-                }
+                if (!_isSearching) _searchController.clear();
                 _applySearchFilter();
               });
             },
           ),
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsPage()),
-              );
-            },
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsPage())),
           ),
         ],
         leading: _isSearching
@@ -562,14 +759,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: TextField(
                   controller: _searchController,
                   autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Search entries...',
-                    hintStyle: GoogleFonts.quicksand(color: Colors.white70),
-                    border: InputBorder.none,
-                    isDense: true,
-                  ),
+                  decoration: InputDecoration(hintText: 'Search entries...', border: InputBorder.none),
                   style: GoogleFonts.quicksand(color: Colors.white, fontSize: 18),
-                  cursorColor: Colors.white,
                 ),
               )
             : null,
@@ -577,35 +768,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
       body: Stack(
         children: [
-          // Background floating decorations (e.g., flowers, hearts)
+          // 1. KEEP YOUR BACKGROUND ANIMATIONS AS THE BOTTOM LAYER
           Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                if (_decorations.isEmpty || _decorations[0].screenSize != constraints.biggest) {
+                 if (_decorations.isEmpty || _decorations[0].screenSize != constraints.biggest) {
+
                   _decorations.clear();
+
                   for (int i = 0; i < 25; i++) {
+
                     _decorations.add(FloatingDecoration(
+
                       imagePath: _backgroundDecorationImages[_random.nextInt(_backgroundDecorationImages.length)],
+
                       random: _random,
+
                       screenSize: constraints.biggest,
+
                     ));
+
                   }
+
                 }
                 return Stack(
                   children: _decorations.map((decoration) {
                     return Positioned(
-                      top: decoration.top,
-                      left: decoration.left,
+                      top: decoration.top, left: decoration.left,
                       child: Opacity(
                         opacity: decoration.opacity,
-                        child: Image.asset(
-                          decoration.imagePath,
-                          width: decoration.size,
-                          height: decoration.size,
-                          fit: BoxFit.contain,
-                          color: (decoration.imagePath.contains('happy.png') || decoration.imagePath.contains('happy.gif')) ? null : Colors.pink.shade100,
-                          colorBlendMode: BlendMode.modulate,
-                        ),
+                        child: Image.asset(decoration.imagePath, width: decoration.size),
                       ),
                     );
                   }).toList(),
@@ -613,169 +805,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               },
             ),
           ),
-          // Main content (loading indicator, empty state, or diary list)
-          _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(),
-                )
-              : _filteredDiaries.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Image.asset(
-                            'assets/images/happy.png',
-                            height: 150,
-                            width: 150,
-                          ),
-                          const SizedBox(height: 24),
-                          Text(
-                            _isSearching ? 'No results found!' : 'Your journey begins here!',
-                            style: GoogleFonts.quicksand(
-                              fontSize: 22,
-                              color: Colors.grey[700],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 30.0),
-                            child: Text(
-                              _isSearching
-                                  ? 'Try a different search term or add a new entry.'
-                                  : 'Tap the cute "+" button below to add your first heartwarming entry!',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.quicksand(
-                                fontSize: 16,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _filteredDiaries.length,
-                      itemBuilder: (context, index) {
-                        final diaryEntry = _filteredDiaries[index];
-                        final String? emotionImagePath = diaryEntry['emotionImage'];
-                        final Color cardBorderColor = _emotionColors[emotionImagePath] ?? Colors.transparent;
-
-                        return Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          elevation: 6,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(15),
-                            side: BorderSide(
-                              color: cardBorderColor,
-                              width: 2,
-                            ),
-                          ),
-                          child: Stack(
-                            children: [
-                              Positioned(
-                                top: -10,
-                                right: -10,
-                                child: Transform.rotate(
-                                  angle: 0.5,
-                                  child: Icon(Icons.star, size: 50, color: Colors.yellow.withOpacity(0.2)),
-                                ),
-                              ),
-                              Positioned(
-                                bottom: -10,
-                                left: -10,
-                                child: Transform.rotate(
-                                  angle: -0.5,
-                                  child: Icon(Icons.favorite_border, size: 40, color: Colors.pink.withOpacity(0.15)),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        if (emotionImagePath != null && emotionImagePath.isNotEmpty)
-                                          Padding(
-                                            padding: const EdgeInsets.only(right: 12.0),
-                                            child: Image.asset(
-                                              emotionImagePath,
-                                              height: 45,
-                                              width: 45,
-                                              fit: BoxFit.contain,
-                                              errorBuilder: (context, error, stackTrace) {
-                                                if (kDebugMode) {
-                                                  print('Error loading image: $emotionImagePath');
-                                                }
-                                                return const Icon(Icons.error, color: Colors.red, size: 45);
-                                              },
-                                            ),
-                                          ),
-                                        Expanded(
-                                          child: Text(
-                                            diaryEntry['feeling'],
-                                            style: GoogleFonts.quicksand(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 22,
-                                              color: themeProvider.appBarColor,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.end,
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(Icons.edit, color: Colors.blueGrey),
-                                              onPressed: () => _showForm(diaryEntry['id']),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.delete, color: Colors.red),
-                                              onPressed: () => _deleteDiary(diaryEntry['id']),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      diaryEntry['description'],
-                                      style: GoogleFonts.quicksand(color: Colors.black87, fontSize: 16),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      DateTime.tryParse(diaryEntry['createdAt']) != null
-                                          ? DateFormat('yyyy-MM-dd HH:mm').format(DateTime.parse(diaryEntry['createdAt']))
-                                          : diaryEntry['createdAt'],
-                                      style: GoogleFonts.quicksand(color: Colors.black54, fontSize: 13),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+          
+          // 2. SHOW THE ACTIVE TAB CONTENT ON TOP
+          activeTabContent,
         ],
       ),
-      floatingActionButton: ScaleTransition(
-        scale: _fabPulseAnimation,
-        child: FloatingActionButton(
-          onPressed: () => _showForm(null),
-          backgroundColor: themeProvider.appBarColor,
-          shape: const CircleBorder(),
-          elevation: 8,
-          child: Icon(
-            Icons.add_rounded,
-            size: 35,
-            color: Colors.white,
-          ),
-        ),
+
+      // --- STEP 3: ADD THE BOTTOM NAVIGATION BAR ---
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        selectedItemColor: themeProvider.appBarColor,
+        unselectedItemColor: Colors.grey,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.book), label: 'Diary'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: 'Calendar'),
+          BottomNavigationBarItem(icon: Icon(Icons.analytics), label: 'Stats'),
+        ],
       ),
+
+      // Only show FAB when on the Diary tab
+      floatingActionButton: _currentIndex == 0 
+        ? ScaleTransition(
+            scale: _fabPulseAnimation,
+            child: FloatingActionButton(
+              onPressed: () => _showForm(null),
+              backgroundColor: themeProvider.appBarColor,
+              child: Icon(Icons.add_rounded, size: 35, color: Colors.white,),
+            ),
+          )
+        : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
-  }
-}
+  }}

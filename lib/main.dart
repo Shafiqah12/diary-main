@@ -2,20 +2,24 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'auth_wrapper.dart'; // For mobile (biometric)
-import 'auth_wrapper_web.dart'; // For web (password)
+import 'auth_wrapper.dart';
+import 'auth_wrapper_web.dart';
 import 'theme_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:google_fonts/google_fonts.dart'; // Import google_fonts
-// Import your new custom_app_bar
-// NEW import
-import 'firebase_options.dart'; // Import your Firebase options
+import 'package:google_fonts/google_fonts.dart';
+import 'firebase_options.dart';
+import 'notification_service.dart'; // NEW IMPORT
 
-void main() async{
-  WidgetsFlutterBinding.ensureInitialized(); // Required to ensure Flutter engine is initialized
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // INITIALIZE NOTIFICATIONS
+  await NotificationService.init(); 
+  await NotificationService.scheduleDailyReminder();
+
   runApp(
     ChangeNotifierProvider(
       create: (context) => ThemeProvider(),
@@ -32,6 +36,7 @@ class MyApp extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: "Shafiqah's Diary",
       themeMode: themeProvider.themeMode,
       theme: ThemeData(
@@ -42,12 +47,9 @@ class MyApp extends StatelessWidget {
           backgroundColor: themeProvider.appBarColor,
           foregroundColor: Colors.white,
           titleTextStyle: GoogleFonts.quicksand(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+            color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold,
           ),
         ),
-        // Apply Quicksand to TextTheme for general text consistency
         textTheme: GoogleFonts.quicksandTextTheme(Theme.of(context).textTheme),
       ),
       darkTheme: ThemeData(
@@ -58,12 +60,9 @@ class MyApp extends StatelessWidget {
           backgroundColor: themeProvider.appBarColor,
           foregroundColor: Colors.white,
           titleTextStyle: GoogleFonts.quicksand(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+            color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold,
           ),
         ),
-        // Apply Quicksand to TextTheme for general text consistency
         textTheme: GoogleFonts.quicksandTextTheme(Theme.of(context).textTheme),
       ),
       home: kIsWeb ? const AuthWrapperWeb() : const AuthWrapper(),
